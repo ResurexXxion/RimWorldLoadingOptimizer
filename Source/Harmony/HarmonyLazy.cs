@@ -1,11 +1,11 @@
 #if RW17
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Reflection.Emit;
 using System.Threading;
 using System.Threading.Tasks;
 using HarmonyLib;
@@ -17,12 +17,13 @@ namespace RimWorldLoadingOptimizer
     {
         private const string Feature = "Lazy Harmony replacements";
         private const int Magic = 0x315A4C52;
+        private const string StageAssembly = "RimWorldLoadingOptimizer.Stage";
+        private const string WrapperCalls = "<>c__DisplayClass8_0..ctor,Action`1..ctor,Enumerable.Any,Enumerator.MoveNext,Enumerator.MoveNext,Enumerator.MoveNext,Enumerator.get_Current,Enumerator.get_Current,Enumerator.get_Current,Exception.get_Data,Exception.get_Data,Func`2..ctor,GeneralExtensions.FullDescription,HarmonyException.Create,HarmonySharedState.RegisterReplacement,HarmonySharedState.UpdatePatchInfo,IDictionary.Contains,IDictionary.Contains,IDisposable.Dispose,IDisposable.Dispose,IDisposable.Dispose,IDisposable.Dispose,IDisposable.Dispose,IEnumerable`1.GetEnumerator,IEnumerator.MoveNext,IEnumerator`1.get_Current,InvalidOperationException..ctor,List`1..ctor,List`1.Add,List`1.Add,List`1.ForEach,List`1.GetEnumerator,List`1.GetEnumerator,List`1.GetEnumerator,MethodBodyPatching.FamilyOwner,MethodBodyPatching.Install,MethodBodyPatching.Instantiations,MethodBodyPatching.IsDefinitionWide,MethodBodyPatching.Prepare,MethodBodyPatching.Release,MethodBodyPatching.ThrowIfInstalling,MethodBodyPatching.get_ProtocolLock,MethodCreator..ctor,MethodCreator.CreateReplacement,MissingMethodException..ctor,Monitor.Enter,Monitor.Exit,PatchFunctions.FamilyConfig,PatchFunctions.ForgetReverse,PatchFunctions.NameTranspilers,PatchFunctions.NameTranspilers,PatchFunctions.SingleConfig,PatchFunctions.ThrowIfRuntimeAsync,PatchInfo.ValidateSurvivingMetadata,PatchInfo.get_Debugging,PatchInfoSerialization.SerializeValidated,PersistentStateHooks.Commit,PersistentStateHooks.Dispose,PersistentStateHooks.Prepare,PersistentStateHooks.Prepare,PersistentStateHooks.Prepare,String.Concat";
 
         private sealed class Pending
         {
             public int Id;
             public MethodBase Original;
-            public MethodInfo Stub;
             public byte[] Previous;
             public string Expected;
             public volatile bool Done;
@@ -49,15 +50,19 @@ namespace RimWorldLoadingOptimizer
         private static readonly List<(MethodBase original, byte[] before, byte[] after)> recorded = new List<(MethodBase, byte[], byte[])>();
         private static readonly MismatchLog mismatches = new MismatchLog(Feature);
         private static Dictionary<MethodBase, byte[]> state;
+        private static IDictionary reverseRecipes;
         private static object locker;
-        private static FastInvokeHandler updateWrapper, updatePatchInfo, detourMethod, validate;
+        private static FastInvokeHandler updateWrapper, updatePatchInfo, validate, prepare, release, isProviderTarget, throwIfInstalling;
         private static Func<PatchInfo, byte[]> serialize;
         private static Func<byte[], PatchInfo> deserialize;
+        private static Func<MethodBase, int, Exception> place;
+        private static Func<MethodBase, Exception> lift, restore;
+        private static Func<MethodBase, bool> gone;
+        private static Action<MethodBase> mute;
         private static FieldInfo configOriginal, configSource, creatorConfig;
-        private static MethodInfo ensure;
         private static SelfCheck check;
         private static string path, header;
-        private static int listed, deferred, stubs, resolvedEarly, resolvedLate, superseded, notProven, calledEarly, impure, failed, compared;
+        private static int listed, deferred, stubs, resolvedEarly, resolvedLate, superseded, notProven, calledEarly, impure, notProvider, failed, compared;
         private static long stubTicks, resolveTicks;
 
         [ThreadStatic] private static Pending resolving;
@@ -67,33 +72,45 @@ namespace RimWorldLoadingOptimizer
         {
             var asm = typeof(Harmony).Assembly;
             Type T(string name) => asm.GetType(name);
+            MethodInfo M(Type type, string name) => type == null ? null : AccessTools.Method(type, name);
             var configType = T("HarmonyLib.MethodCreatorConfig");
             var creatorType = T("HarmonyLib.MethodCreator");
             var shared = T("HarmonyLib.HarmonySharedState");
             var serialization = T("HarmonyLib.PatchInfoSerialization");
-            var wrapper = AccessTools.Method(T("HarmonyLib.PatchFunctions"), "UpdateWrapper");
-            var create = creatorType == null ? null : AccessTools.Method(creatorType, "CreateReplacement");
-            var prepare = configType == null ? null : AccessTools.Method(configType, "Prepare");
+            var functions = T("HarmonyLib.PatchFunctions");
+            var bodies = T("HarmonyLib.MethodBodyPatching");
+            var stage = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => a.GetName().Name == StageAssembly)?.GetType("RimWorldLoadingOptimizer.LazyStage");
+            var wrapper = M(functions, "UpdateWrapper");
+            var create = M(creatorType, "CreateReplacement");
             var getPatchInfo = shared == null ? null : AccessTools.Method(shared, "GetPatchInfo", new[] { typeof(MethodBase) });
-            var update = shared == null ? null : AccessTools.Method(shared, "UpdatePatchInfo");
-            var detour = AccessTools.Method(T("HarmonyLib.PatchTools"), "DetourMethod");
+            var update = M(shared, "UpdatePatchInfo");
             var validateMethod = AccessTools.Method(typeof(PatchInfo), "ValidateSurvivingMetadata");
-            var serializeMethod = serialization == null ? null : AccessTools.Method(serialization, "SerializeValidated");
+            var serializeMethod = M(serialization, "SerializeValidated");
             var deserializeMethod = serialization == null ? null : AccessTools.Method(serialization, "Deserialize", new[] { typeof(byte[]) });
-            var hooks = AccessTools.Method(T("HarmonyLib.PersistentStateHooks"), "Prepare");
-            locker = AccessTools.Field(typeof(PatchProcessor), "locker")?.GetValue(null);
+            var hooks = M(T("HarmonyLib.PersistentStateHooks"), "Prepare");
+            var prepareMethod = M(bodies, "Prepare");
+            var releaseMethod = M(bodies, "Release");
+            var providerMethod = M(bodies, "IsProviderTarget");
+            var installingMethod = M(bodies, "ThrowIfInstalling");
+            locker = bodies == null ? null : AccessTools.Property(bodies, "ProtocolLock")?.GetValue(null);
             state = shared == null ? null : AccessTools.Field(shared, "state")?.GetValue(null) as Dictionary<MethodBase, byte[]>;
+            reverseRecipes = functions == null ? null : AccessTools.Field(functions, "reverseRecipes")?.GetValue(null) as IDictionary;
             configOriginal = configType == null ? null : AccessTools.Field(configType, "original");
             configSource = configType == null ? null : AccessTools.Field(configType, "source");
             creatorConfig = creatorType == null ? null : AccessTools.Field(creatorType, "config");
-            ensure = AccessTools.Method(typeof(HarmonyLazy), nameof(Ensure));
-            if (new object[] { wrapper, create, prepare, getPatchInfo, update, detour, validateMethod, serializeMethod, deserializeMethod, hooks, locker, state, configOriginal, configSource, creatorConfig }.Any(x => x == null)
-                || create.ReturnType != typeof((MethodInfo, Dictionary<int, CodeInstruction>)) || deserializeMethod.ReturnType != typeof(PatchInfo) || serializeMethod.ReturnType != typeof(byte[]))
+            if (new object[] { wrapper, create, getPatchInfo, update, validateMethod, serializeMethod, deserializeMethod, hooks, prepareMethod, releaseMethod, providerMethod, installingMethod, locker, state, reverseRecipes, configOriginal, configSource, creatorConfig }.Any(x => x == null)
+                || create.ReturnType != typeof((MethodInfo, Dictionary<int, CodeInstruction>)) || deserializeMethod.ReturnType != typeof(PatchInfo) || serializeMethod.ReturnType != typeof(byte[])
+                || prepareMethod.ReturnType != typeof(bool) || prepareMethod.GetParameters().Length != 2 || providerMethod.ReturnType != typeof(bool) || update.GetParameters().Length != 3)
             {
                 VersionCheck.Skip(Feature, "a Harmony method it needs no longer exists");
                 return;
             }
-            if (!VersionCheck.Pattern(Feature, wrapper, code => VersionCheck.CallsExactly(code, Coalesce.WrapperCalls), "makes exactly the calls this speedup was built around")
+            if (stage == null)
+            {
+                VersionCheck.Skip(Feature, $"{StageAssembly}.dll is not loaded");
+                return;
+            }
+            if (!VersionCheck.Pattern(Feature, wrapper, code => VersionCheck.CallsExactly(code, WrapperCalls), "makes exactly the calls this speedup was built around")
                 || !VersionCheck.Pattern(Feature, hooks, code => VersionCheck.CallsExactly(code, "AppDomain.GetData,AppDomain.get_CurrentDomain,PersistentStateHooks..ctor"), "makes exactly the calls this speedup was built around"))
             {
                 return;
@@ -103,17 +120,31 @@ namespace RimWorldLoadingOptimizer
                 VersionCheck.Skip(Feature, "a Harmony method it needs no longer exists");
                 return;
             }
-            check = new SelfCheck(Feature, VersionCheck.Code(wrapper, create, prepare, getPatchInfo, update, detour, validateMethod, serializeMethod, deserializeMethod, hooks));
+            check = new SelfCheck(Feature, VersionCheck.Code(wrapper, create, getPatchInfo, update, validateMethod, serializeMethod, deserializeMethod, hooks, prepareMethod, releaseMethod, providerMethod, installingMethod));
             if (check.IsOff)
             {
                 return;
             }
             updateWrapper = HarmonyLib.MethodInvoker.GetHandler(wrapper);
             updatePatchInfo = HarmonyLib.MethodInvoker.GetHandler(update);
-            detourMethod = HarmonyLib.MethodInvoker.GetHandler(detour);
             validate = HarmonyLib.MethodInvoker.GetHandler(validateMethod);
+            prepare = HarmonyLib.MethodInvoker.GetHandler(prepareMethod);
+            release = HarmonyLib.MethodInvoker.GetHandler(releaseMethod);
+            isProviderTarget = HarmonyLib.MethodInvoker.GetHandler(providerMethod);
+            throwIfInstalling = HarmonyLib.MethodInvoker.GetHandler(installingMethod);
             serialize = AccessTools.MethodDelegate<Func<PatchInfo, byte[]>>(serializeMethod);
             deserialize = AccessTools.MethodDelegate<Func<byte[], PatchInfo>>(deserializeMethod);
+            place = (Func<MethodBase, int, Exception>)Delegate.CreateDelegate(typeof(Func<MethodBase, int, Exception>), stage.GetMethod("Place"));
+            lift = (Func<MethodBase, Exception>)Delegate.CreateDelegate(typeof(Func<MethodBase, Exception>), stage.GetMethod("Lift"));
+            restore = (Func<MethodBase, Exception>)Delegate.CreateDelegate(typeof(Func<MethodBase, Exception>), stage.GetMethod("Restore"));
+            gone = (Func<MethodBase, bool>)Delegate.CreateDelegate(typeof(Func<MethodBase, bool>), stage.GetMethod("Gone"));
+            mute = (Action<MethodBase>)Delegate.CreateDelegate(typeof(Action<MethodBase>), stage.GetMethod("Mute"));
+            var start = (Func<MethodInfo, bool>)Delegate.CreateDelegate(typeof(Func<MethodInfo, bool>), stage.GetMethod("Start"));
+            if (!start(AccessTools.Method(typeof(HarmonyLazy), nameof(Ensure))))
+            {
+                VersionCheck.Skip(Feature, "the game cannot replace method bodies on this system");
+                return;
+            }
             header = $"{asm.ManifestModule.ModuleVersionId}|{Environment.Version}";
             path = Path.Combine(GenFilePaths.SaveDataFolderPath, "RimWorldLoadingOptimizer", "harmony-lazy.bin");
             try
@@ -174,8 +205,9 @@ namespace RimWorldLoadingOptimizer
                 var assembly = method.Module.Assembly;
                 result = method is MethodInfo info && !method.IsGenericMethod && !method.ContainsGenericParameters && !method.IsAbstract
                     && method.DeclaringType != null && !method.DeclaringType.IsGenericType && !method.DeclaringType.IsInterface
-                    && (method.CallingConvention & CallingConventions.VarArgs) == 0 && !assembly.IsDynamic
-                    && assembly != typeof(HarmonyLazy).Assembly && !Coalesce.TrustedAssembly(assembly)
+                    && (method.CallingConvention & CallingConventions.VarArgs) == 0 && !assembly.IsDynamic && !assembly.IsCollectible
+                    && ((int)method.GetMethodImplementationFlags() & 0x2000) == 0
+                    && assembly != typeof(HarmonyLazy).Assembly && assembly.GetName().Name != StageAssembly && !Coalesce.TrustedAssembly(assembly)
                     && !info.ReturnType.IsByRefLike && method.GetParameters().All(p => !p.ParameterType.IsByRefLike)
                     && method.GetMethodBody() != null;
             }
@@ -188,6 +220,15 @@ namespace RimWorldLoadingOptimizer
                 eligible[method] = result;
             }
             return result;
+        }
+
+        private static bool Reversed(MethodBase original)
+        {
+            lock (locker)
+            {
+                return reverseRecipes.Contains(original)
+                    || AppDomain.CurrentDomain.GetData("Harmony.MethodBodyPatching.ReverseOwners.v1") is IDictionary owners && owners.Contains(original);
+            }
         }
 
         public static bool Overrides(MethodBase original)
@@ -212,6 +253,16 @@ namespace RimWorldLoadingOptimizer
             return false;
         }
 
+        private static bool Now(Pending waiting)
+        {
+            if (waiting != null)
+            {
+                Resolve(waiting, false);
+                Interlocked.Increment(ref superseded);
+            }
+            return true;
+        }
+
         public static bool WrapperPrefix(MethodBase original, PatchInfo patchInfo, ref MethodInfo __result, out byte[] __state)
         {
             __state = null;
@@ -221,110 +272,158 @@ namespace RimWorldLoadingOptimizer
             }
             var before = Stored(original);
             __state = before;
+            Pending waiting = null;
+            if (!Overrides(original))
+            {
+                lock (gate)
+                {
+                    if (pending.TryGetValue(original, out var known) && !known.Done)
+                    {
+                        waiting = known;
+                    }
+                }
+            }
             if (resolving != null || MainMenu.Reached || Harmony.DEBUG || check.IsOff || proven.Count == 0 || !Eligible(original))
             {
-                return true;
+                return Now(waiting);
             }
             var key = Key(original);
             if (!proven.TryGetValue(key, out var list))
             {
                 Interlocked.Increment(ref notProven);
-                return true;
+                return Now(waiting);
             }
             if (early.Contains(key))
             {
                 Interlocked.Increment(ref calledEarly);
-                return true;
+                return Now(waiting);
             }
-            if (AppDomain.CurrentDomain.GetData("Harmony.Infix.PersistentState.v1") != null || !Coalesce.Pure(original, patchInfo))
+            if (AppDomain.CurrentDomain.GetData("Harmony.Infix.PersistentState.v1") != null || !Coalesce.Pure(original, patchInfo) || Reversed(original))
             {
                 Interlocked.Increment(ref impure);
-                return true;
+                return Now(waiting);
             }
+            Pending entry;
             byte[] bytes;
-            try
-            {
-                validate(patchInfo);
-            }
-            catch (Exception)
-            {
-                return true;
-            }
-            patchInfo.VersionCount++;
-            try
-            {
-                bytes = serialize(patchInfo);
-            }
-            catch (Exception)
-            {
-                patchInfo.VersionCount--;
-                return true;
-            }
-            if (!list.Any(pair => Same(pair.previous, before) && Same(pair.now, bytes)))
-            {
-                patchInfo.VersionCount--;
-                Interlocked.Increment(ref notProven);
-                return true;
-            }
             string expected = null;
-            if (DevSwitches.Verify || check.IsChecking)
+            lock (locker)
             {
-                var holder = new Dry();
-                dry = holder;
                 try
                 {
-                    var copy = deserialize(bytes);
-                    copy.VersionCount--;
-                    updateWrapper(null, original, copy);
-                }
-                catch (Captured)
-                {
+                    throwIfInstalling(null, original);
+                    validate(patchInfo);
                 }
                 catch (Exception)
                 {
-                    holder.Text = null;
+                    return Now(waiting);
                 }
-                finally
+                patchInfo.VersionCount++;
+                try
                 {
-                    dry = null;
+                    bytes = serialize(patchInfo);
                 }
-                expected = holder.Text;
-                if (expected == null)
+                catch (Exception)
                 {
                     patchInfo.VersionCount--;
-                    mismatches.Report($"{original.DeclaringType?.FullName}.{original.Name}: a replacement that was built on the last start could not be built now");
-                    check.Report(false, $"replacement of {original.DeclaringType?.FullName}.{original.Name}");
-                    return true;
+                    return Now(waiting);
                 }
-            }
-            Pending entry;
-            var start = Stopwatch.GetTimestamp();
-            lock (gate)
-            {
-                if (!pending.TryGetValue(original, out entry) || entry.Done)
+                if (!list.Any(pair => Same(pair.previous, before) && Same(pair.now, bytes)))
                 {
-                    entry = new Pending { Id = table.Count, Original = original };
+                    patchInfo.VersionCount--;
+                    Interlocked.Increment(ref notProven);
+                    return Now(waiting);
+                }
+                bool prepared;
+                try
+                {
+                    prepared = (bool)prepare(null, original, false);
+                }
+                catch (Exception)
+                {
+                    patchInfo.VersionCount--;
+                    return Now(waiting);
+                }
+                if (!(bool)isProviderTarget(null, original))
+                {
+                    if (prepared)
+                    {
+                        release(null, original);
+                    }
+                    patchInfo.VersionCount--;
+                    Interlocked.Increment(ref notProvider);
+                    return Now(waiting);
+                }
+                if (DevSwitches.Verify || check.IsChecking)
+                {
+                    var holder = new Dry();
+                    dry = holder;
                     try
                     {
-                        entry.Stub = MakeStub(entry);
-                        table.Add(entry);
-                        detourMethod(null, original, entry.Stub);
+                        var copy = deserialize(bytes);
+                        copy.VersionCount--;
+                        updateWrapper(null, original, copy);
+                    }
+                    catch (Captured)
+                    {
                     }
                     catch (Exception)
                     {
-                        entry.Done = true;
-                        patchInfo.VersionCount--;
-                        Interlocked.Increment(ref failed);
-                        return true;
+                        holder.Text = null;
                     }
-                    pending[original] = entry;
-                    stubs++;
+                    finally
+                    {
+                        dry = null;
+                    }
+                    expected = holder.Text;
+                    if (expected == null)
+                    {
+                        if (prepared)
+                        {
+                            release(null, original);
+                        }
+                        patchInfo.VersionCount--;
+                        mismatches.Report($"{original.DeclaringType?.FullName}.{original.Name}: a replacement that was built on the last start could not be built now");
+                        check.Report(false, $"replacement of {original.DeclaringType?.FullName}.{original.Name}");
+                        return Now(waiting);
+                    }
                 }
-                entry.Previous = before;
-                entry.Expected = expected;
-                updatePatchInfo(null, original, entry.Stub, bytes);
+                var start = Stopwatch.GetTimestamp();
+                lock (gate)
+                {
+                    entry = waiting;
+                    if (entry == null)
+                    {
+                        entry = new Pending { Id = table.Count, Original = original };
+                        table.Add(entry);
+                        Exception failure;
+                        try
+                        {
+                            failure = place(original, entry.Id);
+                        }
+                        catch (Exception e)
+                        {
+                            failure = e;
+                        }
+                        if (failure != null)
+                        {
+                            entry.Done = true;
+                            if (prepared)
+                            {
+                                release(null, original);
+                            }
+                            patchInfo.VersionCount--;
+                            Interlocked.Increment(ref failed);
+                            return true;
+                        }
+                        pending[original] = entry;
+                        stubs++;
+                    }
+                    entry.Previous = before;
+                    entry.Expected = expected;
+                    updatePatchInfo(null, original, null, bytes);
+                }
+                Interlocked.Add(ref stubTicks, Stopwatch.GetTimestamp() - start);
             }
-            Interlocked.Add(ref stubTicks, Stopwatch.GetTimestamp() - start);
             Interlocked.Increment(ref deferred);
             lock (recorded)
             {
@@ -334,7 +433,7 @@ namespace RimWorldLoadingOptimizer
             {
                 Resolve(entry, false);
             }
-            __result = entry.Stub;
+            __result = original as MethodInfo;
             return false;
         }
 
@@ -351,17 +450,6 @@ namespace RimWorldLoadingOptimizer
             {
                 before = mine.Previous;
             }
-            else
-            {
-                lock (gate)
-                {
-                    if (pending.TryGetValue(original, out var entry) && !entry.Done)
-                    {
-                        entry.Done = true;
-                        superseded++;
-                    }
-                }
-            }
             if (now == null || MainMenu.Reached || !Eligible(original))
             {
                 return;
@@ -369,6 +457,19 @@ namespace RimWorldLoadingOptimizer
             lock (recorded)
             {
                 recorded.Add((original, before, now));
+            }
+        }
+
+        private static void Clear(MethodBase original)
+        {
+            if (gone(original))
+            {
+                return;
+            }
+            var failure = lift(original);
+            if (failure != null)
+            {
+                RLOLog.Error($"{Feature}: the stand-in of {original.DeclaringType?.FullName}.{original.Name} could not be removed. {failure}");
             }
         }
 
@@ -403,28 +504,6 @@ namespace RimWorldLoadingOptimizer
         private static string Text(Dictionary<int, CodeInstruction> instructions) =>
             instructions == null ? "" : string.Join("\n", instructions.OrderBy(p => p.Key).Select(p => $"{p.Key} {p.Value}"));
 
-        private static MethodInfo MakeStub(Pending entry)
-        {
-            var original = (MethodInfo)entry.Original;
-            var parameters = new List<Type>();
-            if (!original.IsStatic)
-            {
-                parameters.Add(original.DeclaringType.IsValueType ? original.DeclaringType.MakeByRefType() : original.DeclaringType);
-            }
-            parameters.AddRange(original.GetParameters().Select(p => p.ParameterType));
-            var stub = new DynamicMethod($"{original.DeclaringType.FullName}.{original.Name}_Lazy", original.ReturnType, parameters.ToArray(), original.DeclaringType, true);
-            var il = stub.GetILGenerator();
-            il.Emit(OpCodes.Ldc_I4, entry.Id);
-            il.Emit(OpCodes.Call, ensure);
-            for (var i = 0; i < parameters.Count; i++)
-            {
-                il.Emit(OpCodes.Ldarg, (short)i);
-            }
-            il.Emit(OpCodes.Call, original);
-            il.Emit(OpCodes.Ret);
-            return stub;
-        }
-
         public static void Ensure(int id)
         {
             Pending entry;
@@ -458,17 +537,20 @@ namespace RimWorldLoadingOptimizer
                     var bytes = Stored(entry.Original);
                     var info = deserialize(bytes);
                     info.VersionCount--;
+                    mute(entry.Original);
                     updateWrapper(null, entry.Original, info);
                     if (!Same(bytes, Stored(entry.Original)))
                     {
                         mismatches.Report($"{entry.Original.DeclaringType?.FullName}.{entry.Original.Name}: the patch state changed while its replacement was built at the first call");
                     }
+                    Clear(entry.Original);
                     entry.Done = true;
                 }
                 catch (Exception e)
                 {
                     entry.Failure = e;
-                    RLOLog.Error($"{Feature}: the replacement of {entry.Original.DeclaringType?.FullName}.{entry.Original.Name} could not be built at its first call, although the same patches were built on the last start. Calls to it fail until the game is restarted; switch off \"Harmony rebuild caches\" in the mod settings if this repeats. {e}");
+                    restore(entry.Original);
+                    RLOLog.Error($"{Feature}: the replacement of {entry.Original.DeclaringType?.FullName}.{entry.Original.Name} could not be built at its first call, although the same patches were built on the last start. Calls to it fail until the game is restarted; switch off \"Build Harmony replacements at the first call\" in the mod settings if this repeats. {e}");
                     throw;
                 }
                 finally
@@ -615,7 +697,7 @@ namespace RimWorldLoadingOptimizer
             }
             var text = $"{Feature}: {listed} rebuilds listed from the last start, {early.Count} methods known to be called before the main menu; {deferred} rebuilds not built at patch time for {stubs} methods ({StartupPhaseFixes.Seconds(stubTicks):F2} s for their stand-ins), "
                 + $"{resolvedEarly} of those methods built at their first call before the main menu ({StartupPhaseFixes.Seconds(resolveTicks):F2} s), {superseded} built by a later patch; built right away as before: {calledEarly} of methods called before the main menu, "
-                + $"{impure} with a transpiler or other mod code, {notProven} not seen on the last start, {failed} whose stand-in could not be made; {recordedCount} rebuilds and {early.Count + firedCount} early methods recorded for the next start";
+                + $"{impure} with a transpiler or other mod code, {notProven} not seen on the last start, {notProvider} that Harmony does not install through the game, {failed} whose stand-in could not be made; {recordedCount} rebuilds and {early.Count + firedCount} early methods recorded for the next start";
             if (DevSwitches.Verify || compared > 0)
             {
                 text += $"; {compared} compared with the replacement Harmony builds at patch time, {mismatches.Count} mismatches";

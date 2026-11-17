@@ -1,5 +1,15 @@
 # Changelog
 
+## 5.4.1
+
+### Changed
+- Removed the Harmony dependency name index and the Harmony assembly name cache. Harmony has not run the code they sped up since Harmony 3.0.1, so they did nothing. The "Faster Harmony patch rebuilds" setting keeps the one step that is still used: decoding the stored patch list once instead of twice.
+
+### RimWorld 1.7
+- Works with Harmony 3.0.3. The error log is the same with RimWorld Loading Optimizer on and off.
+- Building Harmony replacements at the first call (5.4) is rebuilt for Harmony 3.0.2 and newer, which install patches through the game's own method-body replacement. It is now a test that is off by default: "Build Harmony replacements at the first call (test)" in Mod Settings, no longer part of "Faster Harmony patch rebuilds". A small stand-in is put in place through the same game mechanism Harmony uses, and the real replacement is built when the method is first called, or as soon as another mod adds a patch that cannot wait (a transpiler, for example). Only methods that Harmony itself installs through the game are deferred. The first 200 are compared with Harmony's own build after every game, Harmony or RimWorld Loading Optimizer update. The work for methods that do run moves to their first call, for example while a map loads. Known limit: while a method waits, code that reads its body through reflection sees the stand-in instead of the patched body. It needs the new file `RimWorldLoadingOptimizer.Stage.dll`, which sits next to the mod's own DLL.
+- Detailed startup report: the Harmony rebuild timing works with Harmony 3.0.3 and times Harmony's new installation step.
+
 ## 5.4
 
 ### Changed
@@ -12,7 +22,7 @@
 - Humanoid Alien Races: race mods (Ratkin, Nearmare and others) no longer lose body, head and addon textures. Humanoid Alien Races looks up each race's textures as soon as its own textures are loaded; with "Load sounds and textures during XML loading" that was before the race mods' textures were loaded, so it found none. It now waits until every mod's textures are loaded.
 
 ### RimWorld 1.7
-- Harmony replacements are built at the first call of the patched method instead of when the patch is applied, for methods whose exact patches were already built on the last start. Most patched methods are never called before the main menu. Patches with a transpiler, and methods known to be called during loading, are built right away as before. The first 200 are compared with Harmony's own build after every game, Harmony or RimWorld Loading Optimizer update. It follows the "Harmony rebuild caches" setting and steps aside when "Merge repeated Harmony rebuilds" is on. The first start after a mod list change builds everything as before.
+- Harmony replacements are built at the first call of the patched method instead of when the patch is applied, for methods whose exact patches were already built on the last start. Most patched methods are never called before the main menu. Patches with a transpiler, and methods known to be called during loading, are built right away as before. The first 200 are compared with Harmony's own build after every game, Harmony or RimWorld Loading Optimizer update. It follows the "Harmony rebuild caches" setting and steps aside when "Merge repeated Harmony rebuilds" is on. The first start after a mod list change builds everything as before. With Harmony 3.0.2 and newer it is a test that is off by default; see 5.4.1.
 - When the game restarts itself (after a mod list change, or with a mod that restarts the game on every start), the restarted game runs the server garbage collector, which collects on several cores. It uses more memory (about 1.6 GB on the Progression packs list) and is only passed on with at least 15 GB of memory. It follows the "Skip the forced memory clean-up" setting.
 
 ## 5.3

@@ -6,6 +6,8 @@ Load-time and memory optimizer for RimWorld with very large mod lists. It patche
 
 All numbers below come from the Progression packs 1–3 mod list ([1/3](https://steamcommunity.com/sharedfiles/filedetails/?id=3521297585), [2/3](https://steamcommunity.com/sharedfiles/filedetails/?id=3521319712), [3/3](https://steamcommunity.com/sharedfiles/filedetails/?id=3637541646)) with RimWorld Loading Optimizer 5.3 and its default settings.
 
+They were measured with Harmony 3.0.1. Harmony 3.0.2 and newer install patches through the game's own method-body replacement, which takes longer on large mod lists; the numbers below have not been measured again with it.
+
 Every speedup has a verification mode that recomputes the result the original way; all reported 0 mismatches in the 5.3 verification starts on 1.7.
 
 ## Benchmarks
@@ -77,7 +79,6 @@ On the Progression packs list (1,495 mods, Mac) this took the main menu from 55.
 | Category sets | `ThingCategoryDef.DescendantThingDefs` results | `Contains` checks on category lists answered from a hash set; follows the Category cache setting |
 | Type name index | `AccessTools.TypeByName` | Lookups that miss the fast paths are answered from an index in Harmony's exact order instead of listing all types of all assemblies per call |
 | Patch file reuse | `ModContentPack.LoadPatches`, `DirectXmlLoader.XmlAssetsInModFolder` | Patch files parsed during def loading are reused instead of parsed a second time |
-| Harmony dependency name index (1.7) | Harmony 3 `GeneratedAssemblyLoader` constructor (`AppDomain.GetAssemblies` call) | Each generated method binds its references from an index of loaded assemblies by name instead of comparing them with every loaded assembly; Harmony's own name and hash checks still run (3.5 s to 0.1 s) |
 | XML previous-sibling cursor (1.7) | `XmlLinkedNode.PreviousSibling` (startup only) | Walks forward from the last previous sibling found instead of from the first child; removing or inserting many nodes in document order is no longer quadratic (Adaptive Storage Framework's def replacement: ~20 s to 0.4 s on cold starts), same nodes |
 | Mesh buffer pool (1.7) | Waylith `MeshUploader.AllocateMeshBuffer` | While the device-local memory budget is used up, and only until 10 s after the main menu, small mesh buffers (up to 256 KB) are placed in a VMA pool with 32 MB blocks instead of one driver allocation each (the frame before the main menu: ~16 s to 0.1 s). Each buffer stays its own VkBuffer; the pool is emptied and destroyed before the allocator. Own setting |
 | Mesh upload timing (1.7) | Waylith `MeshUploader` upload methods | Report only: times mesh uploads for the first 10 s after startup (main menu or straight into a game). Changes nothing |
