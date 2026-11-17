@@ -40,7 +40,7 @@ namespace RimWorldLoadingOptimizer
         {
             var harmonyAssembly = typeof(Harmony).Assembly;
             var loader = harmonyAssembly.GetType("HarmonyLib.GeneratedAssemblyLoader");
-            var ctors = loader?.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) ?? new ConstructorInfo[0];
+            var ctors = loader?.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.Where(c => c.GetParameters().Length > 0).ToArray() ?? new ConstructorInfo[0];
             var ctor = ctors.Length == 1 ? ctors[0] : null;
             var moduleType = harmonyAssembly.GetType("Mono.Cecil.ModuleDefinition");
             var referenceType = harmonyAssembly.GetType("Mono.Cecil.AssemblyNameReference");

@@ -25,7 +25,7 @@ namespace RimWorldLoadingOptimizer
         public static void Install(Harmony harmony)
         {
             var loader = typeof(Harmony).Assembly.GetType("HarmonyLib.GeneratedAssemblyLoader");
-            var ctors = loader?.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) ?? new ConstructorInfo[0];
+            var ctors = loader?.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.Where(c => c.GetParameters().Length > 0).ToArray() ?? new ConstructorInfo[0];
             var ctor = ctors.Length == 1 ? ctors[0] : null;
             var closures = ctor == null ? new List<MethodInfo>() : PatchProcessor.ReadMethodBody(ctor)
                 .Where(p => p.Key == OpCodes.Ldftn)
