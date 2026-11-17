@@ -204,8 +204,8 @@ namespace RimWorldLoadingOptimizer
             Try("Harmony patch state reuse", settings.harmonyRebuildCaches, () => PatchInfoReuse.Install(harmony));
             Try("Harmony rebuild timing", settings.startupReport, () => HarmonyRebuildTiming.Install(harmony));
 #endif
-            Try("reflection cache", ModConstructorSpeedups.Enabled("reflcache"), () => ReflCache.Install(harmony));
 #if !RW17
+            Try("reflection cache", ModConstructorSpeedups.Enabled("reflcache"), () => ReflCache.Install(harmony));
             Try("assembly list cache", ModConstructorSpeedups.Enabled("asmcache"), () => AsmCache.Install(harmony));
 #endif
             Try("assembly type cache", ModConstructorSpeedups.Enabled("earlytypes"), () => TypesCache.Install(harmony));
