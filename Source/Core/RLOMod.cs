@@ -37,7 +37,6 @@ namespace RimWorldLoadingOptimizer
         public bool backgroundJitProfile = true;
         public bool harmonyRebuildCaches = true;
         public bool shadowedUploads = true;
-        public bool harmonyCoalesce = false;
         public bool harmonyLazy = false;
         public bool atlasPageBuffers = true;
         public bool meshPool = true;
@@ -231,8 +230,7 @@ namespace RimWorldLoadingOptimizer
             }
             Try("Harmony identity map", settings.harmonyIdentityMap, () => HarmonyIdentityMap.Install(harmony));
 #if RW17
-            Try("Harmony rebuild coalescing", settings.harmonyCoalesce, () => Coalesce.Install(harmony));
-            Try("lazy Harmony replacements", settings.harmonyLazy && !settings.harmonyCoalesce, () => HarmonyLazy.Install(harmony));
+            Try("lazy Harmony replacements", settings.harmonyLazy, () => HarmonyLazy.Install(harmony));
 #endif
             Try("mod constructor speedups", EarlyModSupport.Needed(settings), () => EarlyModSupport.InstallEarly(harmony));
 #if !NATIVE_ASSETS
@@ -452,7 +450,6 @@ namespace RimWorldLoadingOptimizer
             list.CheckboxLabeled("Background JIT profile", ref settings.backgroundJitProfile, "Records which game and mod code gets compiled during startup and lets the .NET runtime compile it again on a background thread from the next start on. Only the timing of compilation changes.");
             list.CheckboxLabeled("Faster Harmony patch rebuilds", ref settings.harmonyRebuildCaches, "Every time a mod patches a method, Harmony rebuilds that method from scratch. Skip a repeated step of that rebuild: decoding the stored patch list a second time. Same patches, same generated code.");
             list.CheckboxLabeled("Build Harmony replacements at the first call (test)", ref settings.harmonyLazy, "Harmony rebuilds a patched method every time a mod patches it, although most patched methods are never called before the main menu. For methods whose exact patches were already built on the last start, put a small stand-in in place and build the real replacement when the method is first called. Patches with a transpiler and methods known to be called during loading are built right away as before. Moves part of the work from startup to the first time a method runs, for example while a map loads.");
-            list.CheckboxLabeled("Merge repeated Harmony rebuilds (test)", ref settings.harmonyCoalesce, "When a mod patches the same game method from several patch classes, Harmony rebuilds and recompiles that method once per class. Build it once, at the end of that mod's patching, instead. Patch errors still appear exactly where they would otherwise, and the final code is identical. Off by default until it is verified in a full start.");
             list.CheckboxLabeled("Reuse buffers for cached atlas pages", ref settings.atlasPageBuffers, "When the game loads its baked texture atlases from its cache, reuse one buffer for every page instead of allocating a new 85 MB block per page. Less memory churn and fewer long memory clean-ups during atlas baking. Same atlases.");
             list.CheckboxLabeled("Pool small mesh buffers while graphics memory is full", ref settings.meshPool, "With many mod textures the graphics card's memory budget is used up, and the engine's memory allocator then gives every small mesh buffer its own allocation from the driver (tens of thousands, about 15 s in the frame before the main menu, plus wasted graphics memory). While that is the case, and only until shortly after the main menu, small mesh buffers are placed in shared 32 MB blocks instead. Same buffers, same rendering; only where they sit in graphics memory changes. Switch this off if you see graphics problems.");
             list.CheckboxLabeled("Read atlas source file details in parallel", ref settings.atlasStamps, "Before the texture atlases are baked, read the size and date of every source texture file on worker threads instead of one by one on the main thread. The game's atlas cache keys come out the same.");

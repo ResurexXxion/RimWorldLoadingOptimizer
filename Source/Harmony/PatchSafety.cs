@@ -11,9 +11,15 @@ using Verse;
 
 namespace RimWorldLoadingOptimizer
 {
-    public static partial class Coalesce
+    public static class PatchSafety
     {
-        internal static bool InitSafety()
+        private static readonly Dictionary<object, bool> safety = new Dictionary<object, bool>();
+        private static FastInvokeHandler isFactory;
+        private static FieldInfo[] infoArrays;
+        private static PropertyInfo infoDebugging;
+        private static MethodInfo getTypeFromHandle;
+
+        internal static bool Init()
         {
             var factory = AccessTools.Method(typeof(Patch), "IsFactory");
             var arrays = new[] { "prefixes", "postfixes", "transpilers", "finalizers", "innerprefixes", "innerpostfixes", "innerfinalizers" }.Select(n => AccessTools.Field(typeof(PatchInfo), n)).ToArray();
@@ -70,8 +76,6 @@ namespace RimWorldLoadingOptimizer
             }
             return false;
         }
-
-        private static bool ClassSafe(Type type) => type.BaseType == typeof(object) && type.GetMethods(AccessTools.all).All(MethodSafe);
 
         private static bool MethodSafe(MethodBase method) => Cached(method, () => AttributesSafe(method.GetCustomAttributesData())
             && method.GetParameters().All(p => AttributesSafe(p.GetCustomAttributesData()))

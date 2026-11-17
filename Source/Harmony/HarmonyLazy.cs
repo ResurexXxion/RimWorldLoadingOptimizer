@@ -115,7 +115,7 @@ namespace RimWorldLoadingOptimizer
             {
                 return;
             }
-            if (!Coalesce.InitSafety())
+            if (!PatchSafety.Init())
             {
                 VersionCheck.Skip(Feature, "a Harmony method it needs no longer exists");
                 return;
@@ -207,7 +207,7 @@ namespace RimWorldLoadingOptimizer
                     && method.DeclaringType != null && !method.DeclaringType.IsGenericType && !method.DeclaringType.IsInterface
                     && (method.CallingConvention & CallingConventions.VarArgs) == 0 && !assembly.IsDynamic && !assembly.IsCollectible
                     && ((int)method.GetMethodImplementationFlags() & 0x2000) == 0
-                    && assembly != typeof(HarmonyLazy).Assembly && assembly.GetName().Name != StageAssembly && !Coalesce.TrustedAssembly(assembly)
+                    && assembly != typeof(HarmonyLazy).Assembly && assembly.GetName().Name != StageAssembly && !PatchSafety.TrustedAssembly(assembly)
                     && !info.ReturnType.IsByRefLike && method.GetParameters().All(p => !p.ParameterType.IsByRefLike)
                     && method.GetMethodBody() != null;
             }
@@ -298,7 +298,7 @@ namespace RimWorldLoadingOptimizer
                 Interlocked.Increment(ref calledEarly);
                 return Now(waiting);
             }
-            if (AppDomain.CurrentDomain.GetData("Harmony.Infix.PersistentState.v1") != null || !Coalesce.Pure(original, patchInfo) || Reversed(original))
+            if (AppDomain.CurrentDomain.GetData("Harmony.Infix.PersistentState.v1") != null || !PatchSafety.Pure(original, patchInfo) || Reversed(original))
             {
                 Interlocked.Increment(ref impure);
                 return Now(waiting);

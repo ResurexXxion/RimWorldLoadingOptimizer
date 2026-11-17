@@ -4,10 +4,12 @@
 
 ### Changed
 - Removed the Harmony dependency name index and the Harmony assembly name cache. Harmony has not run the code they sped up since Harmony 3.0.1, so they did nothing. The "Faster Harmony patch rebuilds" setting keeps the one step that is still used: decoding the stored patch list once instead of twice.
+- Removed the test "Merge repeated Harmony rebuilds". It switched itself off with Harmony 3.0.2 and newer, and merged almost nothing when it did run.
 
 ### RimWorld 1.7
 - Works with Harmony 3.0.3. The error log is the same with RimWorld Loading Optimizer on and off.
 - Building Harmony replacements at the first call (5.4) is rebuilt for Harmony 3.0.2 and newer, which install patches through the game's own method-body replacement. It is now a test that is off by default: "Build Harmony replacements at the first call (test)" in Mod Settings, no longer part of "Faster Harmony patch rebuilds". A small stand-in is put in place through the same game mechanism Harmony uses, and the real replacement is built when the method is first called, or as soon as another mod adds a patch that cannot wait (a transpiler, for example). Only methods that Harmony itself installs through the game are deferred. The first 200 are compared with Harmony's own build after every game, Harmony or RimWorld Loading Optimizer update. The work for methods that do run moves to their first call, for example while a map loads. Known limit: while a method waits, code that reads its body through reflection sees the stand-in instead of the patched body. It needs the new file `RimWorldLoadingOptimizer.Stage.dll`, which sits next to the mod's own DLL.
+- Code checks and call scans read a method's original code through Harmony. Once a method is patched, the game's reflection returns the body that is installed at that moment, which made a check or a scan look at patched code.
 - Detailed startup report: the Harmony rebuild timing works with Harmony 3.0.3 and times Harmony's new installation step.
 
 ## 5.4
