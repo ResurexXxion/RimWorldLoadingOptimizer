@@ -33,7 +33,6 @@ namespace RimWorldLoadingOptimizer
 #if RW17
         public bool backgroundGc = true;
         public bool soundReadAhead = false;
-        public bool precompilePatched = true;
         public bool backgroundJitProfile = true;
         public bool harmonyRebuildCaches = true;
         public bool shadowedUploads = true;
@@ -170,7 +169,6 @@ namespace RimWorldLoadingOptimizer
 #if RW17
             Try("GC latency until the main menu", settings.backgroundGc, GcLatency.Install);
             Try("background JIT profile", settings.backgroundJitProfile, JitProfile.Install);
-            Try("pre-compile patched methods", settings.precompilePatched, PrecompilePatched.Install);
 #endif
             var harmony = new Harmony(content.PackageIdPlayerFacing);
             HarmonyId = harmony.Id;
@@ -446,7 +444,6 @@ namespace RimWorldLoadingOptimizer
 #if RW17
             list.CheckboxLabeled("Skip the forced memory clean-up at the end of loading", ref settings.backgroundGc, "Just before the main menu the game forces a full memory clean-up and waits for it (several seconds with many mods). Skip it; the runtime cleans up as usual while you play. Same game; memory is freed a little later.");
             list.CheckboxLabeled("Decode mod sounds ahead", ref settings.soundReadAhead, "While mod data loads, a background thread already opens and decodes the mods' sound files, so the game finds them ready instead of loading them one by one. Uses at most 256 MB of extra memory during loading. Sounds are identical.");
-            list.CheckboxLabeled("Pre-compile patched methods", ref settings.precompilePatched, "Remembers which methods were patched by mods at the main menu and compiles them on spare CPU cores early in the next start, so less compiling happens on the loading thread. Only the timing of compilation changes.");
             list.CheckboxLabeled("Background JIT profile", ref settings.backgroundJitProfile, "Records which game and mod code gets compiled during startup and lets the .NET runtime compile it again on a background thread from the next start on. Only the timing of compilation changes.");
             list.CheckboxLabeled("Faster Harmony patch rebuilds", ref settings.harmonyRebuildCaches, "Every time a mod patches a method, Harmony rebuilds that method from scratch. Skip a repeated step of that rebuild: decoding the stored patch list a second time. Same patches, same generated code.");
             list.CheckboxLabeled("Build Harmony replacements at the first call (test)", ref settings.harmonyLazy, "Harmony rebuilds a patched method every time a mod patches it, although most patched methods are never called before the main menu. For methods whose exact patches were already built on the last start, put a small stand-in in place and build the real replacement when the method is first called. Patches with a transpiler and methods known to be called during loading are built right away as before. Moves part of the work from startup to the first time a method runs, for example while a map loads.");

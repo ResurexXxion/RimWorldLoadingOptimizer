@@ -4,6 +4,7 @@
 
 ### Changed
 - Removed the Harmony dependency name index and the Harmony assembly name cache. Harmony has not run the code they sped up since Harmony 3.0.1, so they did nothing. The "Faster Harmony patch rebuilds" setting keeps the one step that is still used: decoding the stored patch list once instead of twice.
+- Removed "Pre-compile patched methods". It compiled a patched method's original code ahead of time; Harmony 3.0.2 and newer replace that code when the patch is applied, so it no longer saved anything, also not with its safety rule switched off for a measurement.
 - Removed the test "Merge repeated Harmony rebuilds". It switched itself off with Harmony 3.0.2 and newer, and merged almost nothing when it did run.
 
 ### RimWorld 1.7
