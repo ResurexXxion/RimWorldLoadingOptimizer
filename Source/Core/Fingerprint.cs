@@ -302,7 +302,7 @@ namespace RimWorldLoadingOptimizer
 
         public static bool OnlyOurs(MethodBase method)
         {
-            var info = Harmony.GetPatchInfo(method);
+            var info = method == null ? null : Harmony.GetPatchInfo(method);
             return info == null || info.Owners.All(o => o == RLOMod.HarmonyId);
         }
 

@@ -14,6 +14,7 @@ namespace RimWorldLoadingOptimizer
     {
         private const double FrameBudgetSeconds = 0.15;
 
+        private static readonly object gate = new object();
         private static Action[] originals;
         private static int[] state;
         private static int next;
@@ -30,8 +31,9 @@ namespace RimWorldLoadingOptimizer
             }
             var loadModXml = AccessTools.Method(typeof(LoadedModManager), nameof(LoadedModManager.LoadModXML));
             var update = AccessTools.Method(typeof(LongEventHandler), nameof(LongEventHandler.LongEventsUpdate));
+            var clear = AccessTools.Method(typeof(PlayDataLoader), nameof(PlayDataLoader.ClearAllPlayData));
 #if RW17
-            if (loadModXml == null || update == null)
+            if (loadModXml == null || update == null || clear == null)
             {
                 VersionCheck.Skip("Early content loading", "a method it needs no longer exists");
                 return;
@@ -87,6 +89,7 @@ namespace RimWorldLoadingOptimizer
             }
             harmony.Patch(loadModXml, prefix: new HarmonyMethod(typeof(EarlyContent), nameof(Ready)));
             harmony.Patch(update, postfix: new HarmonyMethod(typeof(EarlyContent), nameof(UpdatePostfix)));
+            harmony.Patch(clear, prefix: new HarmonyMethod(typeof(EarlyContent), nameof(Stop)));
             MainMenu.UnpatchAfterStartup(update);
             StartupPhaseFixes.Reports.Add(Stats);
             // Humanoid Alien Races counts each race's texture variants on the first rendered frame on which its own textures
@@ -140,13 +143,24 @@ namespace RimWorldLoadingOptimizer
             {
                 return;
             }
-            var start = Stopwatch.GetTimestamp();
-            var budget = (long)(FrameBudgetSeconds * Stopwatch.Frequency);
-            while (next < originals.Length && Stopwatch.GetTimestamp() - start < budget)
+            lock (gate)
             {
-                RunOne(next++, true);
+                var start = Stopwatch.GetTimestamp();
+                var budget = (long)(FrameBudgetSeconds * Stopwatch.Frequency);
+                while (next < originals.Length && Stopwatch.GetTimestamp() - start < budget)
+                {
+                    RunOne(next++, true);
+                }
+                earlyTicks += Stopwatch.GetTimestamp() - start;
             }
-            earlyTicks += Stopwatch.GetTimestamp() - start;
+        }
+
+        public static void Stop()
+        {
+            lock (gate)
+            {
+                next = originals.Length;
+            }
         }
 
         private static void RunOne(int index, bool early)

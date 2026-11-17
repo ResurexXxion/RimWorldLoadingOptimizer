@@ -7,6 +7,13 @@
 - Removed "Pre-compile patched methods". It compiled a patched method's original code ahead of time; Harmony 3.0.2 and newer replace that code when the patch is applied, so it no longer saved anything, also not with its safety rule switched off for a measurement.
 - Removed the test "Merge repeated Harmony rebuilds". It switched itself off with Harmony 3.0.2 and newer, and merged almost nothing when it did run.
 
+### Fixed
+- Early content loading stops when the game clears all loaded data after a mod error during loading. Before, it could still be loading a mod's textures and sounds on the main thread while the game cleared the same lists on the loading thread.
+- Recipe index, RimWorld 1.7: a change to a recipe's users that keeps their number the same (one workbench removed, another added) is seen at the next read. Before, such a change could go unseen for up to 50 ms, and a workbench whose recipes were read in that time kept the old list for the session. On RimWorld 1.6 the check every 50 ms is unchanged.
+- Category cache, RimWorld 1.6: the check of a category's content runs once per second again while the category is read all the time. Before, every read postponed it.
+- Research tree layout per tab, think tree keys and the surgery index step aside when another mod patches the game method they replace, as the other def speedups already did. Before, that mod's patch had no effect.
+- Thing filter removal loops: the check of the game's code now tests that the eight loops it narrows are the ones that only disallow. Before, it only counted the eleven loops.
+
 ### RimWorld 1.7
 - Works with Harmony 3.0.3. The error log is the same with RimWorld Loading Optimizer on and off.
 - Building Harmony replacements at the first call (5.4) is rebuilt for Harmony 3.0.2 and newer, which install patches through the game's own method-body replacement. It is now a test that is off by default: "Build Harmony replacements at the first call (test)" in Mod Settings, no longer part of "Faster Harmony patch rebuilds". A small stand-in is put in place through the same game mechanism Harmony uses, and the real replacement is built when the method is first called, or as soon as another mod adds a patch that cannot wait (a transpiler, for example). Only methods that Harmony itself installs through the game are deferred. The first 200 are compared with Harmony's own build after every game, Harmony or RimWorld Loading Optimizer update. The work for methods that do run moves to their first call, for example while a map loads. Known limit: while a method waits, code that reads its body through reflection sees the stand-in instead of the patched body. It needs the new file `RimWorldLoadingOptimizer.Stage.dll`, which sits next to the mod's own DLL.
