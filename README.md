@@ -52,6 +52,26 @@ DOTNET_GCgen0size=0x4000000 %command%
 
 On the Progression packs list (1,495 mods, Mac) this took the main menu from 55.2 to 53.5 s, with about 300 instead of 2,400 small collections. Remove it if you see memory problems.
 
+## Optional: server garbage collector (1.7, large mod lists)
+
+RimWorld 1.7 starts with the workstation garbage collector. The server garbage collector collects on several cores and has a much larger budget. Like the budget above it is set at launch; a mod cannot switch it on once the game runs. RimWorld Loading Optimizer passes it on when the game restarts itself (with at least 15 GB of memory), but a normal start never restarts. To use it from the first start, in Steam: right-click RimWorld → Properties → Launch Options:
+
+```
+DOTNET_gcServer=1 DOTNET_GCHeapCount=8 %command%
+```
+
+Measured on the Progression packs list (1,495 mods, Mac, 24 GB, RimWorld 1.7.5013, Harmony 3.0.3, RimWorld Loading Optimizer 5.5 with the same settings in every start):
+
+| | Workstation (2 starts) | Server (2 starts) |
+|---|---|---|
+| Main menu | 90.6 and 89.6 s | 63.7 and 64.4 s |
+| Pauses for garbage collection while loading | 15.4 and 16.1 s | 2.8 and 2.9 s |
+| Small collections | about 2,300 | about 30 |
+| Full collections that ran in the background | 0 of 8 | 7 of 8 and 3 of 7 |
+| Peak memory | 14.3 and 14.4 GB | 16.4 and 15.6 GB |
+
+The server starts were restarted starts that RimWorld Loading Optimizer had given these same two variables. The second workstation start also set `DOTNET_GCName=libclrgc.dylib`, the other collector that ships with the game; it changed nothing. With the server collector the budget is 200 MB, so the option above is not needed with it. It uses 1 to 2 GB more memory on this list; remove it if you see memory problems. Seen once in 12 starts with the server collector on RimWorld 1.7.5013: the game's own field injection failed right after the mod assemblies were loaded ("the GC in use can't migrate instances"), and the mods that rely on it logged errors until the next start. It was not seen in 67 server starts on 1.7.5000 and 1.7.5011, nor in about 130 workstation starts (2 of them on 1.7.5013). Whether the server collector or the new game build causes it is not known. Both options are written the way Steam takes them on Mac and Linux; they have not been tried on Windows.
+
 ## Features
 
 | Feature | What it patches | Effect |
