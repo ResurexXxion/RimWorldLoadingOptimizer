@@ -57,8 +57,6 @@ namespace RimWorldLoadingOptimizer
         private static Func<byte[], PatchInfo> deserialize;
         private static Func<MethodBase, int, Exception> place;
         private static Func<MethodBase, Exception> lift, restore;
-        private static Func<MethodBase, bool> gone;
-        private static Action<MethodBase> mute;
         private static FieldInfo configOriginal, configSource, creatorConfig;
         private static SelfCheck check;
         private static string path, header;
@@ -92,13 +90,17 @@ namespace RimWorldLoadingOptimizer
             var releaseMethod = M(bodies, "Release");
             var providerMethod = M(bodies, "IsProviderTarget");
             var installingMethod = M(bodies, "ThrowIfInstalling");
+            var host = AccessTools.TypeByName("HarmonyMod.RuntimeILPatching");
+            var hostRead = M(host, "ReadBody");
+            var hostInstall = M(host, "Install");
+            var hostStage = host?.GetNestedType("Transformer", BindingFlags.NonPublic)?.GetConstructor(Type.EmptyTypes);
             locker = bodies == null ? null : AccessTools.Property(bodies, "ProtocolLock")?.GetValue(null);
             state = shared == null ? null : AccessTools.Field(shared, "state")?.GetValue(null) as Dictionary<MethodBase, byte[]>;
             reverseRecipes = functions == null ? null : AccessTools.Field(functions, "reverseRecipes")?.GetValue(null) as IDictionary;
             configOriginal = configType == null ? null : AccessTools.Field(configType, "original");
             configSource = configType == null ? null : AccessTools.Field(configType, "source");
             creatorConfig = creatorType == null ? null : AccessTools.Field(creatorType, "config");
-            if (new object[] { wrapper, create, getPatchInfo, update, validateMethod, serializeMethod, deserializeMethod, hooks, prepareMethod, releaseMethod, providerMethod, installingMethod, locker, state, reverseRecipes, configOriginal, configSource, creatorConfig }.Any(x => x == null)
+            if (new object[] { wrapper, create, getPatchInfo, update, validateMethod, serializeMethod, deserializeMethod, hooks, prepareMethod, releaseMethod, providerMethod, installingMethod, hostRead, hostInstall, hostStage, locker, state, reverseRecipes, configOriginal, configSource, creatorConfig }.Any(x => x == null)
                 || create.ReturnType != typeof((MethodInfo, Dictionary<int, CodeInstruction>)) || deserializeMethod.ReturnType != typeof(PatchInfo) || serializeMethod.ReturnType != typeof(byte[])
                 || prepareMethod.ReturnType != typeof(bool) || prepareMethod.GetParameters().Length != 2 || providerMethod.ReturnType != typeof(bool) || update.GetParameters().Length != 3)
             {
@@ -120,7 +122,7 @@ namespace RimWorldLoadingOptimizer
                 VersionCheck.Skip(Feature, "a Harmony method it needs no longer exists");
                 return;
             }
-            check = new SelfCheck(Feature, VersionCheck.Code(wrapper, create, getPatchInfo, update, validateMethod, serializeMethod, deserializeMethod, hooks, prepareMethod, releaseMethod, providerMethod, installingMethod));
+            check = new SelfCheck(Feature, VersionCheck.Code(wrapper, create, getPatchInfo, update, validateMethod, serializeMethod, deserializeMethod, hooks, prepareMethod, releaseMethod, providerMethod, installingMethod, hostRead, hostInstall, hostStage));
             if (check.IsOff)
             {
                 return;
@@ -137,15 +139,13 @@ namespace RimWorldLoadingOptimizer
             place = (Func<MethodBase, int, Exception>)Delegate.CreateDelegate(typeof(Func<MethodBase, int, Exception>), stage.GetMethod("Place"));
             lift = (Func<MethodBase, Exception>)Delegate.CreateDelegate(typeof(Func<MethodBase, Exception>), stage.GetMethod("Lift"));
             restore = (Func<MethodBase, Exception>)Delegate.CreateDelegate(typeof(Func<MethodBase, Exception>), stage.GetMethod("Restore"));
-            gone = (Func<MethodBase, bool>)Delegate.CreateDelegate(typeof(Func<MethodBase, bool>), stage.GetMethod("Gone"));
-            mute = (Action<MethodBase>)Delegate.CreateDelegate(typeof(Action<MethodBase>), stage.GetMethod("Mute"));
             var start = (Func<MethodInfo, bool>)Delegate.CreateDelegate(typeof(Func<MethodInfo, bool>), stage.GetMethod("Start"));
             if (!start(AccessTools.Method(typeof(HarmonyLazy), nameof(Ensure))))
             {
                 VersionCheck.Skip(Feature, "the game cannot replace method bodies on this system");
                 return;
             }
-            header = $"{asm.ManifestModule.ModuleVersionId}|{Environment.Version}";
+            header = $"{asm.ManifestModule.ModuleVersionId}|{Environment.Version}|{host.Module.ModuleVersionId}|{typeof(object).Module.ModuleVersionId}";
             path = Path.Combine(GenFilePaths.SaveDataFolderPath, "RimWorldLoadingOptimizer", "harmony-lazy.bin");
             try
             {
@@ -462,10 +462,6 @@ namespace RimWorldLoadingOptimizer
 
         private static void Clear(MethodBase original)
         {
-            if (gone(original))
-            {
-                return;
-            }
             var failure = lift(original);
             if (failure != null)
             {
@@ -537,7 +533,6 @@ namespace RimWorldLoadingOptimizer
                     var bytes = Stored(entry.Original);
                     var info = deserialize(bytes);
                     info.VersionCount--;
-                    mute(entry.Original);
                     updateWrapper(null, entry.Original, info);
                     if (!Same(bytes, Stored(entry.Original)))
                     {

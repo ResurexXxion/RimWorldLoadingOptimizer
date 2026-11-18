@@ -12,7 +12,6 @@ namespace RimWorldLoadingOptimizer
             public int Id;
             public MethodBase Method;
             public volatile bool Active;
-            public volatile bool Declined;
         }
 
         private sealed class Stage : MethodBodyTransformer
@@ -24,16 +23,7 @@ namespace RimWorldLoadingOptimizer
             protected override bool CanTransform(RuntimeMethodHandle method)
             {
                 var slot = Find(method);
-                if (slot == null)
-                {
-                    return false;
-                }
-                if (slot.Active)
-                {
-                    return true;
-                }
-                slot.Declined = true;
-                return false;
+                return slot != null && slot.Active;
             }
 
             protected override bool TryTransform(RuntimeMethodHandle method, in MethodBodyView body, ReadOnlySpan<MethodBodyClause> clauses, MethodBodyBuilder result)
@@ -137,22 +127,6 @@ namespace RimWorldLoadingOptimizer
             return failure;
         }
 
-        public static void Mute(MethodBase method)
-        {
-            var slot = Find(method, out _);
-            if (slot != null)
-            {
-                slot.Declined = false;
-                slot.Active = false;
-            }
-        }
-
-        public static bool Gone(MethodBase method)
-        {
-            var slot = Find(method, out _);
-            return slot == null || !slot.Active && slot.Declined;
-        }
-
         public static Exception Lift(MethodBase method)
         {
             var slot = Find(method, out var handle);
@@ -171,7 +145,6 @@ namespace RimWorldLoadingOptimizer
             {
                 return null;
             }
-            slot.Declined = false;
             slot.Active = true;
             return stage.Rebuild(handle);
         }
