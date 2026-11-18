@@ -42,6 +42,24 @@ namespace RimWorldLoadingOptimizer
             return arrays[4].Length == 0 && arrays[5].Length == 0 && arrays[6].Length == 0 && !(bool)infoDebugging.GetValue(patchInfo) && !ModCodeOrUnknown(original, arrays);
         }
 
+        // A stored patch is found again by module and metadata token only, which gives the open method
+        // for a patch method that is generic or sits in a generic class: its type arguments are lost.
+        internal static bool HasGenericPatch(PatchInfo patchInfo)
+        {
+            foreach (var field in infoArrays)
+            {
+                foreach (var patch in (Patch[])field.GetValue(patchInfo))
+                {
+                    var method = patch.PatchMethod;
+                    if (method == null || method.IsGenericMethod || method.ContainsGenericParameters || method.DeclaringType != null && method.DeclaringType.IsGenericType)
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         internal static bool TrustedAssembly(Assembly assembly) => Trusted(assembly);
 
         private static bool ModCodeOrUnknown(MethodBase original, Patch[][] arrays)

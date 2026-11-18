@@ -60,7 +60,7 @@ namespace RimWorldLoadingOptimizer
         private static FieldInfo configOriginal, configSource, creatorConfig;
         private static SelfCheck check;
         private static string path, header;
-        private static int listed, deferred, stubs, resolvedEarly, resolvedLate, superseded, notProven, calledEarly, impure, notProvider, failed, compared;
+        private static int listed, deferred, stubs, resolvedEarly, resolvedLate, superseded, notProven, calledEarly, impure, generic, notProvider, failed, compared;
         private static long stubTicks, resolveTicks;
 
         [ThreadStatic] private static Pending resolving;
@@ -304,6 +304,11 @@ namespace RimWorldLoadingOptimizer
             if (AppDomain.CurrentDomain.GetData("Harmony.Infix.PersistentState.v1") != null || !PatchSafety.Pure(original, patchInfo) || Reversed(original))
             {
                 Interlocked.Increment(ref impure);
+                return Now(waiting);
+            }
+            if (PatchSafety.HasGenericPatch(patchInfo))
+            {
+                Interlocked.Increment(ref generic);
                 return Now(waiting);
             }
             Pending entry;
@@ -690,7 +695,7 @@ namespace RimWorldLoadingOptimizer
             }
             var text = $"{Feature}: {listed} rebuilds listed from the last start, {early.Count} methods known to be called before the main menu; {deferred} rebuilds not built at patch time for {stubs} methods ({StartupPhaseFixes.Seconds(stubTicks):F2} s for their stand-ins), "
                 + $"{resolvedEarly} of those methods built at their first call before the main menu ({StartupPhaseFixes.Seconds(resolveTicks):F2} s), {superseded} built by a later patch; built right away as before: {calledEarly} of methods called before the main menu, "
-                + $"{impure} with a transpiler or other mod code, {notProven} not seen on the last start, {notProvider} that Harmony does not install through the game, {failed} whose stand-in could not be made; {recordedCount} rebuilds and {early.Count + firedCount} early methods recorded for the next start";
+                + $"{impure} with a transpiler or other mod code, {generic} with a generic patch method, {notProven} not seen on the last start, {notProvider} that Harmony does not install through the game, {failed} whose stand-in could not be made; {recordedCount} rebuilds and {early.Count + firedCount} early methods recorded for the next start";
             if (DevSwitches.Verify || compared > 0)
             {
                 text += $"; {compared} compared with the replacement Harmony builds at patch time, {mismatches.Count} mismatches";
