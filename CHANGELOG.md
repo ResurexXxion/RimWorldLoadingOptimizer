@@ -27,6 +27,7 @@
 - Faster Harmony patching covers the step where Harmony writes the patched body for the game. Harmony 3.0.2 and newer turn every method, field and type of a patch back from Mono.Cecil a second time there, and that second time was not answered from the lookup, which moved the time saved while building a replacement to its installation. Compared with Harmony's own answer for every lookup of one start: 0 differences.
 - The cache for `Type.ContainsGenericParameters` and `Type.GetGenericArguments` is no longer installed on RimWorld 1.7. It was made for RimWorld 1.6; on 1.7, starts with and without it took the same time.
 - Detailed startup report: the Harmony rebuild timing works with Harmony 3.0.3 and times Harmony's new installation step.
+- Fixed: when the same assembly is loaded again later (seen with the cross promotion assembly that Achtung!, Reverse Commands and SquadKit each load), the Harmony module cache no longer keeps answering with the first copy; that lookup goes back to Harmony.
 
 ## 5.4
 
