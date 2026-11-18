@@ -54,7 +54,7 @@ On the Progression packs list (1,495 mods, Mac) this took the main menu from 55.
 
 ## Optional: server garbage collector (1.7, large mod lists)
 
-RimWorld 1.7 starts with the workstation garbage collector. The server garbage collector collects on several cores and has a much larger budget. Like the budget above it is set at launch; a mod cannot switch it on once the game runs. RimWorld Loading Optimizer passes it on when the game restarts itself (with at least 15 GB of memory), but a normal start never restarts. To use it from the first start, in Steam: right-click RimWorld → Properties → Launch Options:
+RimWorld 1.7 starts with the workstation garbage collector. The server garbage collector collects on several cores and has a much larger budget. Like the budget above it is set at launch; a mod cannot switch it on once the game runs. RimWorld Loading Optimizer passes it on when the game restarts itself (with at least 15 GB of memory and 4 cores; half the cores as collector heaps, at most 8), but a normal start never restarts. To use it from the first start, in Steam: right-click RimWorld → Properties → Launch Options:
 
 ```
 DOTNET_gcServer=1 DOTNET_GCHeapCount=8 %command%

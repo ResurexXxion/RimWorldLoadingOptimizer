@@ -29,7 +29,7 @@ namespace RimWorldLoadingOptimizer
         }
 
         private static readonly Dictionary<AssetBundle, HashSet<string>> bundleNames = new Dictionary<AssetBundle, HashSet<string>>(ReferenceComparer<AssetBundle>.Instance);
-        private static MethodBase[] bundleWatched;
+        private static Fingerprint.FrameGuard bundleGuard;
         private static SelfCheck bundleCheck;
         private static Dictionary<string, Texture2D> bundleCache;
         private static AccessTools.FieldRef<int> bundleCacheStamp;
@@ -38,8 +38,6 @@ namespace RimWorldLoadingOptimizer
         private static int[] bundleCounts;
         private static HashSet<string> bundleItems;
         private static string bundleContentPath;
-        private static int bundlesCheckedFrame = -1;
-        private static bool bundlesUnpatched;
 
         // ContentFinder.TryFindAssetInModBundlesUncached builds two paths per mod and asks every bundle of every mod for each
         // texture extension. A bundle only finds a name its reader holds (case-insensitively, as given or with '\' turned into '/'),
@@ -76,7 +74,7 @@ namespace RimWorldLoadingOptimizer
             {
                 bundleCacheStamp = AccessTools.StaticFieldRefAccess<int>(stampField);
                 uncached = AccessTools.MethodDelegate<Func<string, Texture2D>>(BundlesUncached);
-                bundleWatched = new MethodBase[] { BundlesCached, BundlesUncached, BundlesStamp, BundleLoad, BundleNames, assetNames, lookup, load, add };
+                bundleGuard = new Fingerprint.FrameGuard(BundlesCached, BundlesUncached, BundlesStamp, BundleLoad, BundleNames, assetNames, lookup, load, add);
                 bundleCache = (Dictionary<string, Texture2D>)cacheField.GetValue(null);
             }
             catch (Exception e)
@@ -89,7 +87,7 @@ namespace RimWorldLoadingOptimizer
         // ContentFinder<Texture2D>.TryFindAssetInModBundles with the same cache and stamp, around the faster search.
         private static Texture2D NativeBundles(string itemPath)
         {
-            if (bundleCache == null || bundleCheck.IsOff || itemPath == null || !UnityData.IsInMainThread || !BundlesUnpatched())
+            if (bundleCache == null || bundleCheck.IsOff || itemPath == null || !UnityData.IsInMainThread || !bundleGuard.Ours)
             {
                 return ContentFinder<Texture2D>.TryFindAssetInModBundles(itemPath);
             }
@@ -131,17 +129,6 @@ namespace RimWorldLoadingOptimizer
             }
             bundleCache[itemPath] = found;
             return found;
-        }
-
-        private static bool BundlesUnpatched()
-        {
-            var frame = Time.frameCount;
-            if (frame != bundlesCheckedFrame)
-            {
-                bundlesCheckedFrame = frame;
-                bundlesUnpatched = bundleWatched.All(Fingerprint.OnlyOurs);
-            }
-            return bundlesUnpatched;
         }
 
         private static bool IndexBundles(List<ModContentPack> mods, string contentPath)

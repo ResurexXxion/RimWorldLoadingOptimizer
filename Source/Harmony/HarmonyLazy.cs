@@ -93,14 +93,17 @@ namespace RimWorldLoadingOptimizer
             var host = AccessTools.TypeByName("HarmonyMod.RuntimeILPatching");
             var hostRead = M(host, "ReadBody");
             var hostInstall = M(host, "Install");
-            var hostStage = host?.GetNestedType("Transformer", BindingFlags.NonPublic)?.GetConstructor(Type.EmptyTypes);
+            var hostRebuild = M(host, "Rebuild");
+            var hostStageType = host?.GetNestedType("Transformer", BindingFlags.NonPublic);
+            var hostStage = hostStageType?.GetConstructor(Type.EmptyTypes);
+            var hostTransform = M(hostStageType, "TryTransform");
             locker = bodies == null ? null : AccessTools.Property(bodies, "ProtocolLock")?.GetValue(null);
             state = shared == null ? null : AccessTools.Field(shared, "state")?.GetValue(null) as Dictionary<MethodBase, byte[]>;
             reverseRecipes = functions == null ? null : AccessTools.Field(functions, "reverseRecipes")?.GetValue(null) as IDictionary;
             configOriginal = configType == null ? null : AccessTools.Field(configType, "original");
             configSource = configType == null ? null : AccessTools.Field(configType, "source");
             creatorConfig = creatorType == null ? null : AccessTools.Field(creatorType, "config");
-            if (new object[] { wrapper, create, getPatchInfo, update, validateMethod, serializeMethod, deserializeMethod, hooks, prepareMethod, releaseMethod, providerMethod, installingMethod, hostRead, hostInstall, hostStage, locker, state, reverseRecipes, configOriginal, configSource, creatorConfig }.Any(x => x == null)
+            if (new object[] { wrapper, create, getPatchInfo, update, validateMethod, serializeMethod, deserializeMethod, hooks, prepareMethod, releaseMethod, providerMethod, installingMethod, hostRead, hostInstall, hostRebuild, hostStage, hostTransform, locker, state, reverseRecipes, configOriginal, configSource, creatorConfig }.Any(x => x == null)
                 || create.ReturnType != typeof((MethodInfo, Dictionary<int, CodeInstruction>)) || deserializeMethod.ReturnType != typeof(PatchInfo) || serializeMethod.ReturnType != typeof(byte[])
                 || prepareMethod.ReturnType != typeof(bool) || prepareMethod.GetParameters().Length != 2 || providerMethod.ReturnType != typeof(bool) || update.GetParameters().Length != 3)
             {
@@ -122,7 +125,7 @@ namespace RimWorldLoadingOptimizer
                 VersionCheck.Skip(Feature, "a Harmony method it needs no longer exists");
                 return;
             }
-            check = new SelfCheck(Feature, VersionCheck.Code(wrapper, create, getPatchInfo, update, validateMethod, serializeMethod, deserializeMethod, hooks, prepareMethod, releaseMethod, providerMethod, installingMethod, hostRead, hostInstall, hostStage));
+            check = new SelfCheck(Feature, VersionCheck.Code(wrapper, create, getPatchInfo, update, validateMethod, serializeMethod, deserializeMethod, hooks, prepareMethod, releaseMethod, providerMethod, installingMethod, hostRead, hostInstall, hostRebuild, hostStage, hostTransform));
             if (check.IsOff)
             {
                 return;
@@ -460,15 +463,6 @@ namespace RimWorldLoadingOptimizer
             }
         }
 
-        private static void Clear(MethodBase original)
-        {
-            var failure = lift(original);
-            if (failure != null)
-            {
-                RLOLog.Error($"{Feature}: the stand-in of {original.DeclaringType?.FullName}.{original.Name} could not be removed. {failure}");
-            }
-        }
-
         public static void CreatePostfix(object __instance, (MethodInfo, Dictionary<int, CodeInstruction>) __result)
         {
             var holder = dry;
@@ -538,7 +532,11 @@ namespace RimWorldLoadingOptimizer
                     {
                         mismatches.Report($"{entry.Original.DeclaringType?.FullName}.{entry.Original.Name}: the patch state changed while its replacement was built at the first call");
                     }
-                    Clear(entry.Original);
+                    var stuck = lift(entry.Original);
+                    if (stuck != null)
+                    {
+                        throw stuck;
+                    }
                     entry.Done = true;
                 }
                 catch (Exception e)

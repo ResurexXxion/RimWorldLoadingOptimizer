@@ -279,8 +279,8 @@ namespace RimWorldLoadingOptimizer
         private static MethodInfo redirectGet;
         private static SelfCheck check;
         private static MethodBase[] watched;
-        private static int checkedFrame = -1;
-        private static bool unpatched, reportedPatched;
+        private static Fingerprint.FrameGuard guard;
+        private static bool reportedPatched;
 
         public static void Install(Harmony harmony, bool textureLookup)
         {
@@ -290,6 +290,7 @@ namespace RimWorldLoadingOptimizer
                 return;
             }
             watched = new MethodBase[] { OriginalGet, OriginalFolder, OriginalAudioFolder, AccessTools.EnumeratorMoveNext(OriginalFolder), AccessTools.EnumeratorMoveNext(OriginalAudioFolder) };
+            guard = new Fingerprint.FrameGuard(watched);
             check = new SelfCheck("Fast content lookups", VersionCheck.Code(watched[0], watched[1], watched[3], watched[4]));
 #if NATIVE_ASSETS
             InstallBundles();
@@ -421,19 +422,17 @@ namespace RimWorldLoadingOptimizer
 
         private static bool Unpatched()
         {
-            var frame = Time.frameCount;
-            if (frame != checkedFrame)
+            if (guard.Ours)
             {
-                checkedFrame = frame;
-                unpatched = watched.All(Fingerprint.OnlyOurs);
-                if (!unpatched && !reportedPatched)
-                {
-                    reportedPatched = true;
-                    var owners = watched.Where(m => m != null).SelectMany(m => Harmony.GetPatchInfo(m)?.Owners ?? Enumerable.Empty<string>()).Where(o => o != RLOMod.HarmonyId).Distinct();
-                    RLOLog.Detail("fast content: another mod patches ContentFinder (" + string.Join(", ", owners) + "); lookups are left to the game while that patch is in place");
-                }
+                return true;
             }
-            return unpatched;
+            if (!reportedPatched)
+            {
+                reportedPatched = true;
+                var owners = watched.Where(m => m != null).SelectMany(m => Harmony.GetPatchInfo(m)?.Owners ?? Enumerable.Empty<string>()).Where(o => o != RLOMod.HarmonyId).Distinct();
+                RLOLog.Detail("fast content: another mod patches ContentFinder (" + string.Join(", ", owners) + "); lookups are left to the game while that patch is in place");
+            }
+            return false;
         }
 
         private static Texture2D Report(string itemPath, bool reportFailure, Texture2D result)

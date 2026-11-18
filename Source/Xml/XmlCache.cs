@@ -371,6 +371,7 @@ namespace RimWorldLoadingOptimizer
                 active = false;
                 hit = null;
                 skipPatchCleanup = false;
+                watchingLateOperations = false;
                 return true;
             }
             armed = false;
