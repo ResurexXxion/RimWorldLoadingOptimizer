@@ -58,7 +58,7 @@ namespace RimWorldLoadingOptimizer
             {
                 RLOLog.Warning($"static constructor timing unavailable: {e.Message}");
             }
-            if (DevSwitches.Profile)
+            if (DevSwitches.Profile || RLOMod.Settings?.startupTimeline == true)
             {
                 var updateWrapper = AccessTools.Method(typeof(Harmony).Assembly.GetType("HarmonyLib.PatchFunctions"), "UpdateWrapper");
                 if (updateWrapper != null)

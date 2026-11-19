@@ -19,6 +19,7 @@ namespace RimWorldLoadingOptimizer
         public bool ddsFallback = true;
         public bool audioStreaming = true;
         public bool startupReport = false;
+        public bool startupTimeline = false;
         public bool xmlRelease = true;
         public bool shadowedCodeMods = false;
         public bool ddsPrefetch = true;
@@ -159,6 +160,7 @@ namespace RimWorldLoadingOptimizer
                 if (!DevSwitches.AllOff)
                 {
                     settings.startupReport = persisted.startupReport;
+                    settings.startupTimeline = persisted.startupTimeline;
                 }
             }
             Settings = settings;
@@ -472,6 +474,7 @@ namespace RimWorldLoadingOptimizer
 #endif
             list.CheckboxLabeled("Release def XML after loading", ref settings.xmlRelease, "Stop vanilla's unused translation-key bookkeeping from keeping the whole merged def XML in memory.");
             list.CheckboxLabeled("Detailed startup report in log", ref settings.startupReport, "Log what every speedup did during startup, cache statistics and the slowest mod static constructors. For troubleshooting; when off, only the load time and problems are logged.");
+            list.CheckboxLabeled("Startup phase timeline in log", ref settings.startupTimeline, "Also log a timeline of the loading phases, long events and slow frames up to the main menu, with the slowest profiled steps. Same as the RLO_PROFILE=1 environment variable, which is awkward to set when the game is started from Steam or a mod manager on Windows. Needs a restart; costs a little time while loading.");
             list.GapLine();
             list.Label("Extra support for other mods. Each one speeds up startup code of one specific mod and is off by default. A mod with several optimizations lists them below it once it is switched on, each with its own switch. It relies on that mod's internals: it switches itself off when the mod changes and may need a RimWorld Loading Optimizer update after the mod updates. Switch one on here if you want it.");
             foreach (var support in Compatibility.Supports)
